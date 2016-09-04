@@ -54,8 +54,8 @@ def ImageSyn(net, constraints, init=None, bounds=None, callback=None, minimize_o
 
         print numpy.mean(x.flatten())
 
-    dys, dxs = numpy.gradient(filtrd)
-    dys = -dys
+        dys, dxs = numpy.gradient(filtrd)
+        dys = -dys
 
     angles, histogram = hog.build2dHist(dys, dxs)
 
