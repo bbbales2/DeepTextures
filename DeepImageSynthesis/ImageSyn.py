@@ -3,6 +3,72 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from Misc import *
 import numpy
+import bisect
+
+h = numpy.array(sorted(-numpy.linspace(-numpy.pi, numpy.pi, 40, endpoint = False)))
+ht = numpy.power(numpy.sin(4 * h) + 1.0, 4.0)
+plt.polar(h, ht)
+plt.show()
+ht /= sum(ht)
+
+def histandderiv(im):
+    r = im[0, 0, :, :]
+    g = im[0, 1, :, :]
+    b = im[0, 2, :, :]
+
+    im3 = numpy.sqrt(r**2 + g**2 + b**2)
+
+    im2 = scipy.ndimage.filters.gaussian_filter(im3, 0.5)
+
+    dim2dr = r / im2
+    dim2dg = g / im2
+    dim2db = b / im2
+
+    dx = numpy.pad(im2[:, : -2] - im2[:, 2:], ((0, 0), (1, 1)), mode = 'constant')
+    dy = numpy.pad(im2[:-2, : ] - im2[2:, :], ((1, 1), (0, 0)), mode = 'constant')
+
+    mag = numpy.sqrt(dx**2 + dy**2 + 1e-10)
+    angle = numpy.arctan2(dy, dx).flatten()
+
+    magf = mag.flatten()
+
+    h2 = numpy.zeros(40)
+
+    for i, a in enumerate(angle):
+        h2[bisect.bisect_left(h, a)] += magf[i]
+
+    total = sum(h2)
+
+    h3 = h2 / total
+
+    l = 0.5 * sum((h3 - ht)**2)
+
+    #dldh3 = (h3 - ht)
+
+    a0 = h2
+    at = ht
+    dldh2 = numpy.dot(a0 / sum(a0) - at, -a0 / sum(a0)**2) + a0 / sum(a0)**2 - at / sum(a0)
+
+    dldmag = numpy.zeros(256 * 256)
+
+    for i, a in enumerate(angle):
+        dldmag[i] = dldh2[bisect.bisect_left(h, a)]
+
+    dmagdx = dx / mag
+    dmagdy = dy / mag
+
+    tmp1 = dldmag.reshape((256, 256)) * dmagdx
+    dldim3 = numpy.pad(tmp1[:, : -2] - tmp1[:, 2:], ((0, 0), (1, 1)), mode = 'constant')
+    tmp2 = dldmag.reshape((256, 256)) * dmagdy
+    dldim3 += numpy.pad(tmp2[:-2, : ] - tmp2[2:, :], ((1, 1), (0, 0)), mode = 'constant')
+
+    dldim2 = scipy.ndimage.filters.gaussian_filter(dldim3, 0.5)
+
+    dr = dldim2 * dim2dr
+    dg = dldim2 * dim2dg
+    db = dldim2 * dim2db
+
+    return l, h3, numpy.array((dr, dg, db)).reshape((1, 3, r.shape[0], r.shape[1]))
 
 def ImageSyn(net, constraints, init=None, bounds=None, callback=None, minimize_options=None, gradient_free_region=None):
     '''
@@ -50,78 +116,19 @@ def ImageSyn(net, constraints, init=None, bounds=None, callback=None, minimize_o
         if gradient_free_region!=None:
             f_grad[gradient_free_region==1] = 0
 
-        print x.shape
+        log, h1, deriv = histandderiv(x)
 
-        print numpy.mean(x.flatten())
+        a = 2e7
 
-        dys, dxs = numpy.gradient(filtrd)
-        dys = -dys
+        print 'loss: ', f_val
+        print 'angle loss: ', a * log
 
-    angles, histogram = hog.build2dHist(dys, dxs)
+        print 'ratio (image / angle loss): ', f_val / (a * log)
 
-    dxs = numpy.array(dxs_)
-    dys = numpy.array(dys_)
+        plt.polar(h, h1)
+        plt.show()
 
-    nans = numpy.where(numpy.logical_or(numpy.isnan(dxs_), numpy.isnan(dys_)))
-
-    dxs[nans] = 0
-    dys[nans] = 0
-
-    magnitudes = numpy.sqrt(dxs**2 + dys**2 + 1e-10)
-    rs = magnitudes
-
-    if len(rs.shape) == 2:
-        magnitudes[0, :] = 1e-12
-        magnitudes[-1, :] = 1e-12
-        magnitudes[:, 0] = 1e-12
-        magnitudes[:, -1] = 1e-12
-
-    magnitudes[nans] = 0
-
-    phis = numpy.arctan2(dys, dxs)
-
-    phis += (phis < 0) * 2.0 * numpy.pi / (1 + 1e-15)
-
-    phis = phis.flatten()
-
-    phiEdges = numpy.linspace(0.0, 2 * numpy.pi, N + 1)
-    centers = list((phiEdges[:-1] + phiEdges[1:]) / 2.0)
-    centers.append(centers[-1] + centers[0] + 1e-15)
-    centers.insert(0, -centers[0])
-
-    centers = numpy.array(centers)
-
-    # This next bit of code I tried to use to do an interpolated bin
-    # So you accumulate in each bin based on distances from the value you're binning to the bin centers
-    #
-    #print phiEdges
-    #print phis[319777]
-
-    #indices = numpy.searchsorted(centers, phis)
-
-    #dl = phis - centers[indices - 1]
-    #dr = centers[indices] - phis
-
-    #factor = dr / (dl + dr)
-
-    #leftPhis = phis - centers[0]
-    #leftPhis += (leftPhis < 0) * 2.0 * numpy.pi / (1 + 1e-15)
-    #rightPhis = numpy.array(phis)
-    #rightPhis[numpy.where(rightPhis > centers[-2])] = 1e-15
-
-    #print factor[0]
-
-    magnitudes = magnitudes.flatten()
-
-    #histogram1 = numpy.histogram(leftPhis, bins = phiEdges, weights = factor * magnitudes)[0]
-    #histogram2 = numpy.histogram(rightPhis, bins = phiEdges, weights = (1.0 - factor) * magnitudes)[0]
-
-    #histogram = histogram1 + histogram2
-
-    histogram = numpy.histogram(phis, bins = phiEdges, weights = magnitudes)
-    histogram = histogram[0]
-
-        return [f_val, np.array(f_grad.ravel(), dtype=float)]
+        return [f_val + a * log, np.array(f_grad.ravel() - a * deriv.ravel(), dtype=float)]
 
     result = minimize(f, init,
                           method='L-BFGS-B',

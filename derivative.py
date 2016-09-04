@@ -7,6 +7,7 @@ os.chdir('/home/bbales2/DeepTextures')
 import numpy
 import bisect
 import skimage.io
+import scipy.ndimage
 import matplotlib.pyplot as plt
 
 #%%
@@ -18,20 +19,21 @@ plt.show()
 
 im = im.astype('float')[:, :, :3]
 
-h = numpy.array(sorted(-numpy.linspace(-numpy.pi, numpy.pi, 20, endpoint = False)))
-ht = numpy.sin(4 * h) + 2.0
+h = numpy.array(sorted(-numpy.linspace(-numpy.pi, numpy.pi, 40, endpoint = False)))
+ht = numpy.power(numpy.sin(4 * h) + 1.0, 4.0)
 plt.polar(h, ht)
 plt.show()
 ht /= sum(ht)
 #%%
 
 def histandderiv(im):
-#if True:
     r = im[:, :, 0]
     g = im[:, :, 1]
     b = im[:, :, 2]
 
-    im2 = numpy.sqrt(r**2 + g**2 + b**2)#.flatten()
+    im3 = numpy.sqrt(r**2 + g**2 + b**2)
+
+    im2 = scipy.ndimage.filters.gaussian_filter(im3, 0.5)
 
     dim2dr = r / im2
     dim2dg = g / im2
@@ -40,16 +42,12 @@ def histandderiv(im):
     dx = numpy.pad(im2[:, : -2] - im2[:, 2:], ((0, 0), (1, 1)), mode = 'constant')
     dy = numpy.pad(im2[:-2, : ] - im2[2:, :], ((1, 1), (0, 0)), mode = 'constant')
 
-    dxdim2_1 = numpy.pad(numpy.ones((256, 254)), ((0, 0), (1, 1)), mode = 'constant')
-    dxdim2_2 = numpy.pad(numpy.ones((254, 256)), ((1, 1), (0, 0)), mode = 'constant')
-
-    #mag = numpy.sqrt(dx**2 + dy**2 + 1e-10)
-    mag = r
+    mag = numpy.sqrt(dx**2 + dy**2 + 1e-10)
     angle = numpy.arctan2(dy, dx).flatten()
 
     magf = mag.flatten()
 
-    h2 = numpy.zeros(20)
+    h2 = numpy.zeros(40)
 
     for i, a in enumerate(angle):
         h2[bisect.bisect_left(h, a)] += magf[i]
@@ -74,42 +72,63 @@ def histandderiv(im):
     dmagdx = dx / mag
     dmagdy = dy / mag
 
-    tmp = dldmag.reshape((256, 256)) * dmagdx
-    dldim2 = numpy.pad(tmp[:, : -2] - tmp[:, 2:], ((0, 0), (1, 1)), mode = 'constant')
-    tmp = dldmag.reshape((256, 256)) * dmagdy
-    dldim2 += numpy.pad(tmp[:-2, : ] - tmp[2:, :], ((1, 1), (0, 0)), mode = 'constant')
+    tmp1 = dldmag.reshape((256, 256)) * dmagdx
+    dldim3 = numpy.pad(tmp1[:, : -2] - tmp1[:, 2:], ((0, 0), (1, 1)), mode = 'constant')
+    tmp2 = dldmag.reshape((256, 256)) * dmagdy
+    dldim3 += numpy.pad(tmp2[:-2, : ] - tmp2[2:, :], ((1, 1), (0, 0)), mode = 'constant')
+
+    dldim2 = scipy.ndimage.filters.gaussian_filter(dldim3, 0.5)
 
     dr = dldim2 * dim2dr
     dg = dldim2 * dim2dg
     db = dldim2 * dim2db
 
-    return l, h2, dr, mag, dldmag, dldh3
+    return l, h3, numpy.rollaxis(numpy.array((dr, dg, db)), 0, 3)
 
-l1, h1, dr1, mag1, dldmag1, dldh31 = histandderiv(im)
+l1, h1, dr1 = histandderiv(im)
 
 plt.polar(h, h1)
 plt.show()
 
 im3 = im.copy()
 
-im3[0, 0, 0] *= 1.000001
+ii = 71
+jj = 11
+
+im3[ii, jj, 0] *= 1.0001
 #im3 *= 1.001
 
-l2, h2, dr2, mag2, dldmag2, dldh32 = histandderiv(im3)
+l2, h2, dr2 = histandderiv(im3)
 
 plt.polar(h, h2)
 plt.show()
 
-print l1, l2, -(l2 - l1) / (im[0, 0, 0] - im3[0, 0, 0]), dr1[0, 0], dr2[0, 0]
+#print l1, l2, -(l2 - l1) / (im[0, 0, 0] - im3[0, 0, 0]), dr1[0, 0], dr2[0, 0]
 
-print (l2 - l1) / (mag2[0, 0] - mag1[0, 0]), dldmag1[0], dldmag2[0]
+print (l2 - l1) / ((im[ii, jj, 0] - im3[ii, jj, 0])), dr1[ii, jj], dr2[ii, jj]#, dldmag1[1], dldmag2[1]
 
 idxs = []
 for i, a in enumerate(angle):
     idxs.append(bisect.bisect_left(h, a))
 #%%
-plt.imshow(dr)
-plt.show()
+im0 = im.copy()
+for i in range(200):
+
+    l1, h1, dr1 = histandderiv(im0)
+
+    im0 += 1000.0 * dr1 / numpy.linalg.norm(dr1.flatten())
+
+    print l1
+    #print h1
+    plt.polar(h, h1)
+    plt.show()
+
+    im1 = im0.copy()
+    im1 -= im1.flatten().min()
+    im1 /= im1.flatten().max()
+
+    plt.imshow(im1)
+    plt.show()
 #%%
 a0 = numpy.random.rand(4)
 at = numpy.random.rand(4)
